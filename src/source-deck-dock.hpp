@@ -1,13 +1,11 @@
 #pragma once
+#include <obs.h>
 #include <QWidget>
 #include <QGridLayout>
 #include <QPushButton>
 #include <QTimer>
 #include <QString>
 #include <vector>
-
-struct obs_sceneitem;
-typedef struct obs_sceneitem obs_sceneitem_t;
 
 class SourceDeckDock : public QWidget {
   Q_OBJECT
