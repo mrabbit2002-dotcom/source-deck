@@ -26,6 +26,7 @@ private:
   QVector<int> lastResults;
   QVector<bool> diceLocked;
   QString currentHtmlPath;
+  qint64 activeRollNonce{};
 
   void addDie(int sides);
   void removeDie(int index);
