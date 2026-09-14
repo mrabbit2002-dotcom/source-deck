@@ -24,16 +24,19 @@ private:
   QWidget *diceListWidget{};
   QVector<int> diceSides;
   QVector<int> lastResults;
+  QVector<bool> diceLocked;
   QString currentHtmlPath;
 
   void addDie(int sides);
   void removeDie(int index);
+  void toggleDieLock(int index);
   void rebuildDiceList();
   void roll();
   void toggleVisibility();
   void updateVisibilityButton();
   void saveDiceConfig();
   void loadDiceConfig();
+  void normalizeResultState();
   QString configPath() const;
-  bool ensureDiceSource(const QVector<int> &results, qint64 nonce);
+  bool ensureDiceSource(const QVector<int> &results, const QVector<bool> &rolling, qint64 nonce);
 };
