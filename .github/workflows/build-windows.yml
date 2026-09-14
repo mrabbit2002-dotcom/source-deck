@@ -1,0 +1,35 @@
+name: Build Source Deck for Windows
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout Source Deck
+        uses: actions/checkout@v4
+
+      - name: Build OBS plugin DLL
+        shell: pwsh
+        run: ./scripts/build-ci.ps1
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer EXE
+        shell: pwsh
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ".\installer\source-deck.iss"'
+
+      - name: Upload SourceDeck-Setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: SourceDeck-Setup
+          path: dist/SourceDeck-Setup.exe
+          if-no-files-found: error
