@@ -28,6 +28,8 @@ static QString currentSceneName()
 SourceDeckDock::SourceDeckDock(Mode mode, QWidget *parent) : QWidget(parent), mode(mode)
 {
   buildUi();
+  if (mode == Mode::Sources)
+    sourceSceneName = currentSceneName();
   loadLayout();
   rebuildButtons();
   connect(&timer, &QTimer::timeout, this, [this]() { syncStates(); });
@@ -78,7 +80,8 @@ QStringList SourceDeckDock::availableItems() const
   if (mode == Mode::Scenes) {
     obs_frontend_source_list list{};
     obs_frontend_get_scenes(&list);
-    for (size_t i = 0; i < list.sources.num; ++i) result << QString::fromUtf8(obs_source_get_name(list.sources.array[i]));
+    for (size_t i = 0; i < list.sources.num; ++i)
+      result << QString::fromUtf8(obs_source_get_name(list.sources.array[i]));
     obs_frontend_source_list_free(&list);
   } else {
     obs_source_t *sceneSource = obs_frontend_get_current_scene();
@@ -105,7 +108,10 @@ void SourceDeckDock::chooseAndAdd()
   const QStringList choices = availableItems();
   if (choices.isEmpty()) return;
   bool ok = false;
-  const QString selected = QInputDialog::getItem(this, mode == Mode::Scenes ? "Add Scene" : "Add Source", mode == Mode::Scenes ? "Scene:" : "Source:", choices, 0, false, &ok);
+  const QString selected = QInputDialog::getItem(this,
+    mode == Mode::Scenes ? "Add Scene" : "Add Source",
+    mode == Mode::Scenes ? "Scene:" : "Source:",
+    choices, 0, false, &ok);
   if (!ok || selected.isEmpty()) return;
   const int n = entries.size();
   entries.push_back({nullptr, selected, QPoint(18 + (n % 3) * 132, 18 + (n / 3) * 80)});
@@ -115,9 +121,6 @@ void SourceDeckDock::chooseAndAdd()
 
 void SourceDeckDock::rebuildButtons()
 {
-  // Remove every existing deck button from the canvas immediately.  Using
-  // deleteLater() alone leaves the old widgets visible until Qt returns to
-  // the event loop, which produced overlapping "ghost" buttons after delete.
   const auto oldButtons = canvas->findChildren<QPushButton *>(QString(), Qt::FindDirectChildrenOnly);
   for (QPushButton *button : oldButtons) {
     button->removeEventFilter(this);
@@ -189,13 +192,14 @@ bool SourceDeckDock::eventFilter(QObject *watched, QEvent *event)
 QPoint SourceDeckDock::clampPosition(const QPoint &pos, const QSize &buttonSize) const
 {
   if (!canvas) return pos;
-  return QPoint(qBound(0, pos.x(), qMax(0, canvas->width() - buttonSize.width())), qBound(0, pos.y(), qMax(0, canvas->height() - buttonSize.height())));
+  return QPoint(
+    qBound(0, pos.x(), qMax(0, canvas->width() - buttonSize.width())),
+    qBound(0, pos.y(), qMax(0, canvas->height() - buttonSize.height())));
 }
 
 void SourceDeckDock::removeEntry(int index)
 {
   if (index < 0 || index >= entries.size()) return;
-  // Hide the clicked button before mutating the model so deletion is visually immediate.
   if (entries[index].button) entries[index].button->hide();
   if (draggingButton == entries[index].button) draggingButton = nullptr;
   entries.removeAt(index);
@@ -209,7 +213,10 @@ void SourceDeckDock::activateEntry(int index)
   const QString name = entries[index].name;
   if (mode == Mode::Scenes) {
     obs_source_t *scene = obs_get_source_by_name(name.toUtf8().constData());
-    if (scene) { obs_frontend_set_current_scene(scene); obs_source_release(scene); }
+    if (scene) {
+      obs_frontend_set_current_scene(scene);
+      obs_source_release(scene);
+    }
     return;
   }
   obs_source_t *sceneSource = obs_frontend_get_current_scene();
@@ -228,18 +235,55 @@ void SourceDeckDock::updateButtonAppearance()
     if (!entry.button) continue;
     if (mode == Mode::Scenes) {
       const bool active = entry.name == currentSceneName();
-      entry.button->setStyleSheet(editMode ? "QPushButton{font-weight:700;padding:6px;border:2px dashed #d38b2c;background:rgba(211,139,44,0.12);}" : active ? "QPushButton{font-weight:700;padding:6px;background:#5b7cfa;color:white;border:2px solid #5b7cfa;}" : "QPushButton{font-weight:600;padding:6px;border:2px solid #5b7cfa;}");
+      entry.button->setStyleSheet(
+        editMode
+          ? "QPushButton{font-weight:700;padding:6px;border:2px dashed #d38b2c;background:rgba(211,139,44,0.12);}"
+          : active
+              ? "QPushButton{font-weight:700;padding:6px;background:#5b7cfa;color:white;border:2px solid #5b7cfa;}"
+              : "QPushButton{font-weight:600;padding:6px;border:2px solid #5b7cfa;}"
+      );
     } else {
-      entry.button->setStyleSheet(editMode ? "QPushButton{font-weight:700;padding:6px;border:2px dashed #d38b2c;background:rgba(211,139,44,0.12);}" : "QPushButton{font-weight:600;padding:6px;} QPushButton:checked{background:#3a9d5d;color:white;}");
+      entry.button->setStyleSheet(
+        editMode
+          ? "QPushButton{font-weight:700;padding:6px;border:2px dashed #d38b2c;background:rgba(211,139,44,0.12);}"
+          : "QPushButton{font-weight:600;padding:6px;} QPushButton:checked{background:#3a9d5d;color:white;}"
+      );
     }
   }
 }
 
-void SourceDeckDock::rebuild() { rebuildButtons(); }
+void SourceDeckDock::rebuild()
+{
+  rebuildButtons();
+}
+
+void SourceDeckDock::switchSourceScene(const QString &sceneName)
+{
+  if (mode != Mode::Sources || sceneName == sourceSceneName)
+    return;
+
+  if (!sourceSceneName.isEmpty())
+    saveLayout();
+
+  sourceSceneName = sceneName;
+  entries.clear();
+  loadLayout();
+  rebuildButtons();
+}
 
 void SourceDeckDock::syncStates()
 {
-  if (mode == Mode::Scenes) { updateButtonAppearance(); return; }
+  if (mode == Mode::Scenes) {
+    updateButtonAppearance();
+    return;
+  }
+
+  const QString activeScene = currentSceneName();
+  if (activeScene != sourceSceneName) {
+    switchSourceScene(activeScene);
+    return;
+  }
+
   obs_source_t *sceneSource = obs_frontend_get_current_scene();
   obs_scene_t *scene = sceneSource ? obs_scene_from_source(sceneSource) : nullptr;
   for (auto &entry : entries) {
@@ -257,10 +301,36 @@ void SourceDeckDock::saveLayout()
 {
   QJsonArray array;
   for (const auto &entry : entries) {
-    QJsonObject obj; obj["name"] = entry.name; obj["x"] = entry.pos.x(); obj["y"] = entry.pos.y(); array.append(obj);
+    QJsonObject obj;
+    obj["name"] = entry.name;
+    obj["x"] = entry.pos.x();
+    obj["y"] = entry.pos.y();
+    array.append(obj);
   }
+
   QFile file(settingsPath());
-  if (file.open(QIODevice::WriteOnly)) file.write(QJsonDocument(array).toJson(QJsonDocument::Indented));
+
+  if (mode == Mode::Scenes) {
+    if (file.open(QIODevice::WriteOnly))
+      file.write(QJsonDocument(array).toJson(QJsonDocument::Indented));
+    return;
+  }
+
+  QJsonObject root;
+  if (file.open(QIODevice::ReadOnly)) {
+    const QJsonDocument existing = QJsonDocument::fromJson(file.readAll());
+    file.close();
+    if (existing.isObject())
+      root = existing.object();
+    else if (existing.isArray() && !sourceSceneName.isEmpty())
+      root[sourceSceneName] = existing.array();
+  }
+
+  if (!sourceSceneName.isEmpty())
+    root[sourceSceneName] = array;
+
+  if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
 }
 
 void SourceDeckDock::loadLayout()
@@ -268,13 +338,31 @@ void SourceDeckDock::loadLayout()
   QFile file(settingsPath());
   if (!file.open(QIODevice::ReadOnly)) return;
   const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-  if (!doc.isArray()) return;
+
+  QJsonArray array;
+  if (mode == Mode::Scenes) {
+    if (!doc.isArray()) return;
+    array = doc.array();
+  } else {
+    if (doc.isObject()) {
+      array = doc.object().value(sourceSceneName).toArray();
+    } else if (doc.isArray()) {
+      // Legacy single-layout format: attach it to whichever scene is active
+      // the first time this version is launched.
+      array = doc.array();
+    } else {
+      return;
+    }
+  }
+
   int fallback = 0;
-  for (const auto &value : doc.array()) {
+  for (const auto &value : array) {
     const QJsonObject obj = value.toObject();
     const QString name = obj["name"].toString();
     if (name.isEmpty()) continue;
-    const QPoint pos = obj.contains("x") && obj.contains("y") ? QPoint(obj["x"].toInt(), obj["y"].toInt()) : QPoint(18 + (fallback % 3) * 132, 18 + (fallback / 3) * 80);
+    const QPoint pos = obj.contains("x") && obj.contains("y")
+      ? QPoint(obj["x"].toInt(), obj["y"].toInt())
+      : QPoint(18 + (fallback % 3) * 132, 18 + (fallback / 3) * 80);
     entries.push_back({nullptr, name, pos});
     ++fallback;
   }
