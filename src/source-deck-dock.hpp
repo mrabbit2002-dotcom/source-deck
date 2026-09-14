@@ -5,7 +5,7 @@
 #include <QPushButton>
 #include <QTimer>
 #include <QString>
-#include <vector>
+#include <QVector>
 
 class SourceDeckDock : public QWidget {
   Q_OBJECT
@@ -16,11 +16,32 @@ public:
   void syncStates();
 
 private:
-  struct Entry { QPushButton *button{}; obs_sceneitem_t *item{}; };
+  enum class DeckType { Scene, Source };
+  struct Entry {
+    QPushButton *button{};
+    DeckType type{DeckType::Source};
+    QString name;
+  };
+
   QGridLayout *grid{};
   QTimer timer;
-  std::vector<Entry> entries;
+  QVector<Entry> entries;
   QString currentSceneName;
-  void clearGrid();
-  void addSceneItem(obs_sceneitem_t *item, int index);
+  bool editMode{false};
+  QPushButton *editButton{};
+  QPushButton *addSceneButton{};
+  QPushButton *addSourceButton{};
+
+  void clearDeck();
+  void buildControls();
+  void addDeckButton(DeckType type, const QString &name, int index);
+  void chooseAndAdd(DeckType type);
+  void moveEntry(int from, int to);
+  void saveLayout();
+  void loadLayout();
+  QString settingsPath() const;
+  QStringList availableScenes() const;
+  QStringList availableSources() const;
+  void activateEntry(int index);
+  void refreshGrid();
 };
