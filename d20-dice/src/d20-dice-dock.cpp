@@ -10,6 +10,7 @@
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QRandomGenerator>
 #include <QScrollArea>
 #include <QTimer>
@@ -17,7 +18,7 @@
 
 static constexpr const char *DiceSourceName = "DnD Dice Roller";
 
-static QString jsonArray(const QVector<int> &values)
+static QString jsonIntArray(const QVector<int> &values)
 {
   QStringList parts;
   for (int value : values)
@@ -25,49 +26,86 @@ static QString jsonArray(const QVector<int> &values)
   return "[" + parts.join(',') + "]";
 }
 
-static QString htmlForRoll(const QVector<int> &sides, const QVector<int> &results, qint64 nonce)
+static QString jsonBoolArray(const QVector<bool> &values)
+{
+  QStringList parts;
+  for (bool value : values)
+    parts << (value ? "true" : "false");
+  return "[" + parts.join(',') + "]";
+}
+
+static QString htmlForRoll(const QVector<int> &sides, const QVector<int> &results,
+                           const QVector<bool> &rolling, const QVector<bool> &locked,
+                           qint64 nonce)
 {
   int total = 0;
   for (int value : results)
-    total += value;
+    if (value > 0)
+      total += value;
 
   return QString(R"HTML(<!doctype html><html><head><meta charset="utf-8"><style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;font-family:Arial,sans-serif}
-#stage{box-sizing:border-box;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:34px}
-#dice{width:100%;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:22px}
-.dieWrap{width:150px;height:174px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;perspective:600px}
-.die{width:126px;height:126px;display:flex;align-items:center;justify-content:center;color:white;font-size:44px;font-weight:900;text-shadow:0 3px 9px rgba(0,0,0,.9);border:4px solid rgba(255,255,255,.9);box-sizing:border-box;background:linear-gradient(145deg,rgba(73,91,135,.97),rgba(26,31,48,.97));filter:drop-shadow(0 10px 12px rgba(0,0,0,.45));transform-style:preserve-3d}
-.die.rolling{animation:tumble 1.9s cubic-bezier(.15,.75,.15,1)}
-.label{color:white;font-size:21px;font-weight:800;text-shadow:0 2px 5px #000}
-.total{min-width:260px;padding:16px 30px;border-radius:16px;background:rgba(15,18,28,.82);border:3px solid rgba(255,255,255,.9);color:white;text-align:center;font-size:28px;font-weight:800;text-shadow:0 2px 5px #000;opacity:0;transform:scale(.85);transition:.28s ease}
+#stage{box-sizing:border-box;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:28px}
+#dice{width:100%;display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-end;gap:16px}
+.dieWrap{position:relative;width:158px;height:188px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+.dieCanvas{width:150px;height:150px;display:block;filter:drop-shadow(0 12px 10px rgba(0,0,0,.38))}
+.dieLabel{margin-top:-5px;color:white;font-size:20px;font-weight:800;text-shadow:0 2px 5px #000}
+.dieValue{position:absolute;left:50%;top:68px;transform:translate(-50%,-50%);color:white;font-size:40px;font-weight:900;text-shadow:0 3px 8px #000;pointer-events:none}
+.lockBadge{position:absolute;right:8px;top:8px;padding:5px 8px;border-radius:9px;background:rgba(10,12,18,.82);border:1px solid rgba(255,255,255,.65);color:white;font-size:13px;font-weight:800;display:none}
+.locked .lockBadge{display:block}
+.locked .dieCanvas{filter:drop-shadow(0 12px 10px rgba(0,0,0,.38)) grayscale(.32)}
+.total{min-width:260px;padding:14px 30px;border-radius:16px;background:rgba(15,18,28,.84);border:3px solid rgba(255,255,255,.9);color:white;text-align:center;font-size:26px;font-weight:800;text-shadow:0 2px 5px #000;opacity:0;transform:scale(.88);transition:.25s ease}
 .total.show{opacity:1;transform:scale(1)}
 .total strong{font-size:58px;display:block;line-height:1.05}
-.s3,.s4{clip-path:polygon(50% 0,100% 100%,0 100%)}
-.s6{border-radius:16px}
-.s8{clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
-.s10{clip-path:polygon(50% 0,90% 20%,100% 62%,72% 100%,28% 100%,0 62%,10% 20%)}
-.s12{clip-path:polygon(25% 4%,75% 4%,100% 30%,92% 78%,50% 100%,8% 78%,0 30%)}
-.s20,.s100{clip-path:polygon(50% 0,80% 10%,100% 35%,95% 70%,70% 96%,30% 96%,5% 70%,0 35%,20% 10%)}
-@keyframes tumble{0%{transform:rotateX(0) rotateY(0) rotateZ(0) scale(.72)}20%{transform:rotateX(210deg) rotateY(150deg) rotateZ(110deg) scale(1.08)}50%{transform:rotateX(520deg) rotateY(390deg) rotateZ(330deg) scale(.88)}78%{transform:rotateX(760deg) rotateY(650deg) rotateZ(540deg) scale(1.03)}100%{transform:rotateX(1080deg) rotateY(900deg) rotateZ(720deg) scale(1)}}
-</style></head><body><div id="stage"><div id="dice"></div><div id="total" class="total">TOTAL<strong>%4</strong></div></div><script>
-const sides=%1, finals=%2, nonce=%3;
+</style></head><body><div id="stage"><div id="dice"></div><div id="total" class="total">TOTAL<strong>%6</strong></div></div><script>
+const sides=%1, finals=%2, rolling=%3, locked=%4, nonce=%5;
 const root=document.getElementById('dice');
-const nodes=[];
-for(let i=0;i<sides.length;i++){
-  const wrap=document.createElement('div');wrap.className='dieWrap';
-  const die=document.createElement('div');die.className='die rolling s'+sides[i];die.textContent='1';
-  const label=document.createElement('div');label.className='label';label.textContent='D'+sides[i];
-  wrap.appendChild(die);wrap.appendChild(label);root.appendChild(wrap);nodes.push(die);
+const items=[];
+
+function meshFor(s){
+  if(s===4){return {v:[[1,1,1],[-1,-1,1],[-1,1,-1],[1,-1,-1]],f:[[0,1,2],[0,3,1],[0,2,3],[1,3,2]]};}
+  if(s===6){return {v:[[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]],f:[[0,1,2,3],[4,7,6,5],[0,4,5,1],[1,5,6,2],[2,6,7,3],[4,0,3,7]]};}
+  if(s===8){return {v:[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]],f:[[0,2,4],[2,1,4],[1,3,4],[3,0,4],[2,0,5],[1,2,5],[3,1,5],[0,3,5]]};}
+  if(s===3){return {v:[[-1,-.85,-1],[1,-.85,-1],[0,1,-1],[-1,-.85,1],[1,-.85,1],[0,1,1]],f:[[0,2,1],[3,4,5],[0,1,4,3],[1,2,5,4],[2,0,3,5]]};}
+  if(s===10||s===100){const v=[[0,1.55,0],[0,-1.55,0]];for(let i=0;i<5;i++){const a=i*Math.PI*2/5;v.push([Math.cos(a)*1.18,0,Math.sin(a)*1.18]);}const f=[];for(let i=0;i<5;i++){const a=2+i,b=2+((i+1)%5);f.push([0,a,b]);f.push([1,b,a]);}return {v,f};}
+  if(s===12){const p=(1+Math.sqrt(5))/2, q=1/p;const v=[];for(const a of [-1,1])for(const b of [-1,1])for(const c of [-1,1])v.push([a,b,c]);for(const a of [-1,1])for(const b of [-1,1]){v.push([0,a*q,b*p]);v.push([a*q,b*p,0]);v.push([b*p,0,a*q]);}const f=[];for(let i=0;i<v.length;i+=3)f.push([i,(i+1)%v.length,(i+2)%v.length]);return {v,f};}
+  const p=(1+Math.sqrt(5))/2;const v=[[-1,p,0],[1,p,0],[-1,-p,0],[1,-p,0],[0,-1,p],[0,1,p],[0,-1,-p],[0,1,-p],[p,0,-1],[p,0,1],[-p,0,-1],[-p,0,1]];
+  const f=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];return {v,f};
 }
-let started=performance.now();
-const timer=setInterval(()=>{
-  const elapsed=performance.now()-started;
-  nodes.forEach((n,i)=>{n.textContent=elapsed>1650?finals[i]:(1+Math.floor(Math.random()*sides[i]));});
-  if(elapsed>1900){clearInterval(timer);nodes.forEach((n,i)=>{n.textContent=finals[i];n.classList.remove('rolling');});document.getElementById('total').classList.add('show');}
-},55);
+function rot(v,ax,ay,az){let[x,y,z]=v;let c=Math.cos(ax),q=Math.sin(ax);[y,z]=[y*c-z*q,y*q+z*c];c=Math.cos(ay);q=Math.sin(ay);[x,z]=[x*c+z*q,-x*q+z*c];c=Math.cos(az);q=Math.sin(az);[x,y]=[x*c-y*q,x*q+y*c];return[x,y,z];}
+function drawDie(item,t){
+  const c=item.canvas,ctx=c.getContext('2d'),m=item.mesh;ctx.clearRect(0,0,c.width,c.height);
+  const active=item.rolling, dur=1900, e=Math.min(1,t/dur), ease=1-Math.pow(1-e,3);
+  const spin=active?(t*.0105*(1-e*.62)):.0;
+  const ax=(active?spin*.83:1.05)+item.seed*.17, ay=(active?spin*1.08:1.42)+item.seed*.11, az=(active?spin*.61:.38)+item.seed*.07;
+  const bounce=active?(Math.abs(Math.sin(t*.011))*24*(1-e)):0;
+  const scale=active?(1+.14*Math.sin(Math.min(1,e)*Math.PI)):1;
+  ctx.save();ctx.translate(0,-bounce);
+  ctx.beginPath();ctx.ellipse(75,132,42*(1-e*.25),11*(1-e*.25),0,0,Math.PI*2);ctx.fillStyle='rgba(0,0,0,.30)';ctx.fill();
+  const p=m.v.map(v=>{const r=rot(v,ax,ay,az),d=4.8+r[2];return [75+r[0]*108/d*scale,70+r[1]*108/d*scale,r[2]];});
+  const fs=m.f.map(f=>({f,z:f.reduce((a,i)=>a+p[i][2],0)/f.length})).sort((a,b)=>a.z-b.z);
+  for(const o of fs){const f=o.f;ctx.beginPath();ctx.moveTo(p[f[0]][0],p[f[0]][1]);for(let j=1;j<f.length;j++)ctx.lineTo(p[f[j]][0],p[f[j]][1]);ctx.closePath();const shade=Math.max(28,Math.min(72,46+o.z*13));ctx.fillStyle=`hsl(222 36% ${shade}%)`;ctx.fill();ctx.lineWidth=2.1;ctx.strokeStyle='rgba(255,255,255,.84)';ctx.stroke();}
+  ctx.restore();
+  if(active&&t<dur){item.value.textContent=1+Math.floor(Math.random()*item.sides);}else{item.value.textContent=item.final>0?item.final:'-';}
+}
+for(let i=0;i<sides.length;i++){
+  const wrap=document.createElement('div');wrap.className='dieWrap'+(locked[i]?' locked':'');
+  const canvas=document.createElement('canvas');canvas.className='dieCanvas';canvas.width=150;canvas.height=150;
+  const value=document.createElement('div');value.className='dieValue';value.textContent=finals[i]>0?finals[i]:'-';
+  const badge=document.createElement('div');badge.className='lockBadge';badge.textContent='LOCK';
+  const label=document.createElement('div');label.className='dieLabel';label.textContent='D'+sides[i];
+  wrap.appendChild(canvas);wrap.appendChild(value);wrap.appendChild(badge);wrap.appendChild(label);root.appendChild(wrap);
+  items.push({canvas,value,sides:sides[i],final:finals[i],rolling:rolling[i],mesh:meshFor(sides[i]),seed:(i+1)*.731});
+}
+let start=performance.now();
+function frame(now){const t=now-start;for(const item of items)drawDie(item,t);if(t<2050&&rolling.some(Boolean))requestAnimationFrame(frame);else{for(const item of items){item.rolling=false;drawDie(item,99999);}document.getElementById('total').classList.add('show');}}
+requestAnimationFrame(frame);
+if(!rolling.some(Boolean))document.getElementById('total').classList.add('show');
 </script></body></html>)HTML")
-    .arg(jsonArray(sides))
-    .arg(jsonArray(results))
+    .arg(jsonIntArray(sides))
+    .arg(jsonIntArray(results))
+    .arg(jsonBoolArray(rolling))
+    .arg(jsonBoolArray(locked))
     .arg(nonce)
     .arg(total);
 }
@@ -92,7 +130,7 @@ D20DiceDock::D20DiceDock(QWidget *parent) : QWidget(parent)
 
   auto *scroll = new QScrollArea(this);
   scroll->setWidgetResizable(true);
-  scroll->setMinimumHeight(110);
+  scroll->setMinimumHeight(130);
   diceListWidget = new QWidget(scroll);
   diceListLayout = new QVBoxLayout(diceListWidget);
   diceListLayout->setContentsMargins(4, 4, 4, 4);
@@ -112,7 +150,7 @@ D20DiceDock::D20DiceDock(QWidget *parent) : QWidget(parent)
   root->addWidget(totalLabel);
 
   auto *buttonRow = new QHBoxLayout();
-  rollButton = new QPushButton("Roll All", this);
+  rollButton = new QPushButton("Roll Unlocked", this);
   visibilityButton = new QPushButton("Hide", this);
   rollButton->setMinimumHeight(42);
   visibilityButton->setMinimumHeight(42);
@@ -127,8 +165,11 @@ D20DiceDock::D20DiceDock(QWidget *parent) : QWidget(parent)
   connect(visibilityButton, &QPushButton::clicked, this, [this]() { toggleVisibility(); });
 
   loadDiceConfig();
-  if (diceSides.isEmpty())
+  if (diceSides.isEmpty()) {
     diceSides.push_back(20);
+    diceLocked.push_back(false);
+  }
+  normalizeResultState();
   rebuildDiceList();
   QTimer::singleShot(0, this, [this]() { updateVisibilityButton(); });
 }
@@ -143,14 +184,26 @@ QString D20DiceDock::configPath() const
   return path;
 }
 
+void D20DiceDock::normalizeResultState()
+{
+  while (diceLocked.size() < diceSides.size()) diceLocked.push_back(false);
+  while (diceLocked.size() > diceSides.size()) diceLocked.removeLast();
+  while (lastResults.size() < diceSides.size()) lastResults.push_back(0);
+  while (lastResults.size() > diceSides.size()) lastResults.removeLast();
+}
+
 void D20DiceDock::saveDiceConfig()
 {
   const QString path = configPath();
   if (path.isEmpty()) return;
   QDir().mkpath(QFileInfo(path).absolutePath());
   QJsonArray array;
-  for (int sides : diceSides)
-    array.append(sides);
+  for (int i = 0; i < diceSides.size(); ++i) {
+    QJsonObject obj;
+    obj["sides"] = diceSides[i];
+    obj["locked"] = i < diceLocked.size() ? diceLocked[i] : false;
+    array.append(obj);
+  }
   QFile file(path);
   if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
     file.write(QJsonDocument(array).toJson(QJsonDocument::Compact));
@@ -164,15 +217,27 @@ void D20DiceDock::loadDiceConfig()
   const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
   if (!doc.isArray()) return;
   for (const QJsonValue &value : doc.array()) {
-    const int sides = value.toInt();
-    if (sides == 3 || sides == 4 || sides == 6 || sides == 8 || sides == 10 || sides == 12 || sides == 20 || sides == 100)
+    int sides = 0;
+    bool locked = false;
+    if (value.isObject()) {
+      const QJsonObject obj = value.toObject();
+      sides = obj["sides"].toInt();
+      locked = obj["locked"].toBool(false);
+    } else {
+      sides = value.toInt();
+    }
+    if (sides == 3 || sides == 4 || sides == 6 || sides == 8 || sides == 10 || sides == 12 || sides == 20 || sides == 100) {
       diceSides.push_back(sides);
+      diceLocked.push_back(locked);
+    }
   }
 }
 
 void D20DiceDock::addDie(int sides)
 {
   diceSides.push_back(sides);
+  diceLocked.push_back(false);
+  lastResults.push_back(0);
   saveDiceConfig();
   rebuildDiceList();
 }
@@ -181,15 +246,26 @@ void D20DiceDock::removeDie(int index)
 {
   if (index < 0 || index >= diceSides.size()) return;
   diceSides.removeAt(index);
+  if (index < diceLocked.size()) diceLocked.removeAt(index);
+  if (index < lastResults.size()) lastResults.removeAt(index);
+  saveDiceConfig();
+  rebuildDiceList();
+}
+
+void D20DiceDock::toggleDieLock(int index)
+{
+  if (index < 0 || index >= diceSides.size()) return;
+  normalizeResultState();
+  diceLocked[index] = !diceLocked[index];
   saveDiceConfig();
   rebuildDiceList();
 }
 
 void D20DiceDock::rebuildDiceList()
 {
+  normalizeResultState();
   while (QLayoutItem *item = diceListLayout->takeAt(0)) {
-    if (item->widget())
-      delete item->widget();
+    if (item->widget()) delete item->widget();
     delete item;
   }
 
@@ -202,11 +278,20 @@ void D20DiceDock::rebuildDiceList()
       auto *rowWidget = new QWidget(diceListWidget);
       auto *row = new QHBoxLayout(rowWidget);
       row->setContentsMargins(4, 2, 4, 2);
-      auto *label = new QLabel(QString("Die %1   •   D%2").arg(i + 1).arg(diceSides[i]), rowWidget);
+      const QString resultText = lastResults[i] > 0 ? QString(" = %1").arg(lastResults[i]) : QString();
+      auto *label = new QLabel(QString("Die %1  •  D%2%3").arg(i + 1).arg(diceSides[i]).arg(resultText), rowWidget);
+      auto *lock = new QPushButton(diceLocked[i] ? "Locked" : "Unlocked", rowWidget);
       auto *remove = new QPushButton("Remove", rowWidget);
-      remove->setMaximumWidth(88);
+      lock->setCheckable(true);
+      lock->setChecked(diceLocked[i]);
+      lock->setMaximumWidth(92);
+      remove->setMaximumWidth(82);
+      if (diceLocked[i])
+        lock->setStyleSheet("QPushButton{font-weight:700;background:#72552b;} QPushButton:checked{background:#72552b;}");
       row->addWidget(label, 1);
+      row->addWidget(lock);
       row->addWidget(remove);
+      connect(lock, &QPushButton::clicked, this, [this, i]() { toggleDieLock(i); });
       connect(remove, &QPushButton::clicked, this, [this, i]() { removeDie(i); });
       diceListLayout->addWidget(rowWidget);
     }
@@ -214,7 +299,7 @@ void D20DiceDock::rebuildDiceList()
   diceListLayout->addStretch(1);
 }
 
-bool D20DiceDock::ensureDiceSource(const QVector<int> &results, qint64 nonce)
+bool D20DiceDock::ensureDiceSource(const QVector<int> &results, const QVector<bool> &rolling, qint64 nonce)
 {
   obs_source_t *sceneSource = obs_frontend_get_current_scene();
   if (!sceneSource) return false;
@@ -234,7 +319,7 @@ bool D20DiceDock::ensureDiceSource(const QVector<int> &results, qint64 nonce)
     obs_source_release(sceneSource);
     return false;
   }
-  file.write(htmlForRoll(diceSides, results, nonce).toUtf8());
+  file.write(htmlForRoll(diceSides, results, rolling, diceLocked, nonce).toUtf8());
   file.close();
 
   obs_source_t *source = obs_get_source_by_name(DiceSourceName);
@@ -257,22 +342,17 @@ bool D20DiceDock::ensureDiceSource(const QVector<int> &results, qint64 nonce)
     obs_data_set_int(settings, "fps", 60);
     obs_source_update(source, settings);
     obs_data_release(settings);
-    // A unique local-file path on every roll prevents CEF from reusing a cached
-    // document. Restarting media as well makes rapid rerolls reliably replay.
     obs_source_media_restart(source);
   }
 
   obs_sceneitem_t *item = obs_scene_find_source(scene, DiceSourceName);
-  if (!item)
-    item = obs_scene_add(scene, source);
-  if (item)
-    obs_sceneitem_set_visible(item, true);
+  if (!item) item = obs_scene_add(scene, source);
+  if (item) obs_sceneitem_set_visible(item, true);
 
   const QString oldPath = currentHtmlPath;
   currentHtmlPath = path;
-  if (!oldPath.isEmpty() && oldPath != path) {
+  if (!oldPath.isEmpty() && oldPath != path)
     QTimer::singleShot(5000, this, [oldPath]() { QFile::remove(oldPath); });
-  }
 
   obs_source_release(source);
   obs_source_release(sceneSource);
@@ -287,23 +367,40 @@ void D20DiceDock::roll()
     return;
   }
 
-  QVector<int> results;
-  results.reserve(diceSides.size());
+  normalizeResultState();
+  QVector<bool> rolling;
+  rolling.reserve(diceSides.size());
+  bool anyRolling = false;
   int total = 0;
   QStringList detail;
-  for (int sides : diceSides) {
-    const int result = QRandomGenerator::global()->bounded(1, sides + 1);
-    results.push_back(result);
-    total += result;
-    detail << QString("D%1: %2").arg(sides).arg(result);
+
+  for (int i = 0; i < diceSides.size(); ++i) {
+    const bool shouldRoll = !diceLocked[i];
+    rolling.push_back(shouldRoll);
+    if (shouldRoll) {
+      lastResults[i] = QRandomGenerator::global()->bounded(1, diceSides[i] + 1);
+      anyRolling = true;
+    }
+    if (lastResults[i] > 0)
+      total += lastResults[i];
+    detail << QString("D%1: %2%3")
+                  .arg(diceSides[i])
+                  .arg(lastResults[i] > 0 ? QString::number(lastResults[i]) : "-")
+                  .arg(diceLocked[i] ? " [LOCK]" : "");
+  }
+
+  if (!anyRolling) {
+    resultLabel->setText("All dice are locked. Unlock at least one die to reroll.");
+    totalLabel->setText(QString("TOTAL: %1").arg(total));
+    return;
   }
 
   const qint64 nonce = QDateTime::currentMSecsSinceEpoch();
-  if (ensureDiceSource(results, nonce)) {
-    lastResults = results;
+  if (ensureDiceSource(lastResults, rolling, nonce)) {
     resultLabel->setText(detail.join("   |   "));
     totalLabel->setText(QString("TOTAL: %1").arg(total));
-    rollButton->setText("Reroll All");
+    rollButton->setText("Reroll Unlocked");
+    rebuildDiceList();
   } else {
     resultLabel->setText("Could not create or refresh the Browser Source.");
   }
