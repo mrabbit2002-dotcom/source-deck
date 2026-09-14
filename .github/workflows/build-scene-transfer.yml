@@ -1,0 +1,38 @@
+name: Build Scene Transfer for Windows
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'scene-transfer/**'
+      - '.github/workflows/build-scene-transfer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build OBS plugin DLL
+        shell: pwsh
+        run: ./scene-transfer/scripts/build-ci.ps1
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer EXE
+        shell: pwsh
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ".\scene-transfer\installer\scene-transfer.iss"'
+
+      - name: Upload SceneTransfer-Setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: SceneTransfer-Setup
+          path: scene-transfer/dist/SceneTransfer-Setup.exe
+          if-no-files-found: error
