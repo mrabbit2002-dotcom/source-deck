@@ -45,62 +45,60 @@ static QString htmlForRoll(const QVector<int> &sides, const QVector<int> &result
 
   return QString(R"HTML(<!doctype html><html><head><meta charset="utf-8"><style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;font-family:Arial,sans-serif}
-#stage{box-sizing:border-box;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:28px}
-#dice{width:100%;display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-end;gap:16px}
-.dieWrap{position:relative;width:158px;height:188px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
-.dieCanvas{width:150px;height:150px;display:block;filter:drop-shadow(0 12px 10px rgba(0,0,0,.38))}
-.dieLabel{margin-top:-5px;color:white;font-size:20px;font-weight:800;text-shadow:0 2px 5px #000}
-.dieValue{position:absolute;left:50%;top:68px;transform:translate(-50%,-50%);color:white;font-size:40px;font-weight:900;text-shadow:0 3px 8px #000;pointer-events:none}
-.lockBadge{position:absolute;right:8px;top:8px;padding:5px 8px;border-radius:9px;background:rgba(10,12,18,.82);border:1px solid rgba(255,255,255,.65);color:white;font-size:13px;font-weight:800;display:none}
-.locked .lockBadge{display:block}
-.locked .dieCanvas{filter:drop-shadow(0 12px 10px rgba(0,0,0,.38)) grayscale(.32)}
-.total{min-width:260px;padding:14px 30px;border-radius:16px;background:rgba(15,18,28,.84);border:3px solid rgba(255,255,255,.9);color:white;text-align:center;font-size:26px;font-weight:800;text-shadow:0 2px 5px #000;opacity:0;transform:scale(.88);transition:.25s ease}
-.total.show{opacity:1;transform:scale(1)}
-.total strong{font-size:58px;display:block;line-height:1.05}
+#stage{box-sizing:border-box;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;padding:34px}
+#dice{width:100%;display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-end;gap:24px}
+.dieWrap{position:relative;width:160px;height:190px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+.die{position:relative;width:142px;height:142px;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#63749a,#27324f);border:4px solid rgba(255,255,255,.94);box-sizing:border-box;filter:drop-shadow(0 12px 12px rgba(0,0,0,.42));}
+.dieValue{position:relative;z-index:3;color:#fff;font-size:48px;font-weight:900;line-height:1;text-shadow:0 3px 8px rgba(0,0,0,.9)}
+.dieLabel{margin-top:8px;color:white;font-size:21px;font-weight:800;text-shadow:0 2px 5px #000}
+.lockBadge{position:absolute;right:0;top:0;z-index:5;padding:5px 8px;border-radius:9px;background:rgba(10,12,18,.86);border:1px solid rgba(255,255,255,.7);color:white;font-size:13px;font-weight:800;display:none}
+.locked .lockBadge{display:block}.locked .die{filter:drop-shadow(0 12px 12px rgba(0,0,0,.42)) grayscale(.4);opacity:.82}
+.s3,.s4{clip-path:polygon(50% 2%,98% 96%,2% 96%);padding-top:26px}
+.s6{border-radius:22px}
+.s8{clip-path:polygon(50% 1%,98% 50%,50% 99%,2% 50%)}
+.s10{clip-path:polygon(50% 1%,88% 20%,99% 55%,72% 98%,28% 98%,1% 55%,12% 20%)}
+.s12{clip-path:polygon(26% 2%,74% 2%,98% 28%,93% 76%,50% 99%,7% 76%,2% 28%)}
+.s20{clip-path:polygon(50% 1%,78% 10%,98% 34%,94% 70%,70% 96%,30% 96%,6% 70%,2% 34%,22% 10%)}
+.s100{clip-path:polygon(31% 2%,69% 2%,92% 18%,100% 50%,92% 82%,69% 98%,31% 98%,8% 82%,0 50%,8% 18%)}
+.rolling .dieValue{animation:pulse .22s ease-in-out infinite alternate}
+@keyframes pulse{from{transform:scale(.93);opacity:.78}to{transform:scale(1.08);opacity:1}}
+.total{min-width:280px;padding:14px 30px;border-radius:16px;background:rgba(15,18,28,.86);border:3px solid rgba(255,255,255,.92);color:white;text-align:center;font-size:26px;font-weight:800;text-shadow:0 2px 5px #000;opacity:0;transform:scale(.9);transition:.22s ease}
+.total.show{opacity:1;transform:scale(1)}.total strong{font-size:60px;display:block;line-height:1.05}
 </style></head><body><div id="stage"><div id="dice"></div><div id="total" class="total">TOTAL<strong>%6</strong></div></div><script>
 const sides=%1, finals=%2, rolling=%3, locked=%4, nonce=%5;
 const root=document.getElementById('dice');
 const items=[];
-
-function meshFor(s){
-  if(s===4){return {v:[[1,1,1],[-1,-1,1],[-1,1,-1],[1,-1,-1]],f:[[0,1,2],[0,3,1],[0,2,3],[1,3,2]]};}
-  if(s===6){return {v:[[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]],f:[[0,1,2,3],[4,7,6,5],[0,4,5,1],[1,5,6,2],[2,6,7,3],[4,0,3,7]]};}
-  if(s===8){return {v:[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]],f:[[0,2,4],[2,1,4],[1,3,4],[3,0,4],[2,0,5],[1,2,5],[3,1,5],[0,3,5]]};}
-  if(s===3){return {v:[[-1,-.85,-1],[1,-.85,-1],[0,1,-1],[-1,-.85,1],[1,-.85,1],[0,1,1]],f:[[0,2,1],[3,4,5],[0,1,4,3],[1,2,5,4],[2,0,3,5]]};}
-  if(s===10||s===100){const v=[[0,1.55,0],[0,-1.55,0]];for(let i=0;i<5;i++){const a=i*Math.PI*2/5;v.push([Math.cos(a)*1.18,0,Math.sin(a)*1.18]);}const f=[];for(let i=0;i<5;i++){const a=2+i,b=2+((i+1)%5);f.push([0,a,b]);f.push([1,b,a]);}return {v,f};}
-  if(s===12){const p=(1+Math.sqrt(5))/2, q=1/p;const v=[];for(const a of [-1,1])for(const b of [-1,1])for(const c of [-1,1])v.push([a,b,c]);for(const a of [-1,1])for(const b of [-1,1]){v.push([0,a*q,b*p]);v.push([a*q,b*p,0]);v.push([b*p,0,a*q]);}const f=[];for(let i=0;i<v.length;i+=3)f.push([i,(i+1)%v.length,(i+2)%v.length]);return {v,f};}
-  const p=(1+Math.sqrt(5))/2;const v=[[-1,p,0],[1,p,0],[-1,-p,0],[1,-p,0],[0,-1,p],[0,1,p],[0,-1,-p],[0,1,-p],[p,0,-1],[p,0,1],[-p,0,-1],[-p,0,1]];
-  const f=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];return {v,f};
-}
-function rot(v,ax,ay,az){let[x,y,z]=v;let c=Math.cos(ax),q=Math.sin(ax);[y,z]=[y*c-z*q,y*q+z*c];c=Math.cos(ay);q=Math.sin(ay);[x,z]=[x*c+z*q,-x*q+z*c];c=Math.cos(az);q=Math.sin(az);[x,y]=[x*c-y*q,x*q+y*c];return[x,y,z];}
-function drawDie(item,t){
-  const c=item.canvas,ctx=c.getContext('2d'),m=item.mesh;ctx.clearRect(0,0,c.width,c.height);
-  const active=item.rolling, dur=1900, e=Math.min(1,t/dur), ease=1-Math.pow(1-e,3);
-  const spin=active?(t*.0105*(1-e*.62)):.0;
-  const ax=(active?spin*.83:1.05)+item.seed*.17, ay=(active?spin*1.08:1.42)+item.seed*.11, az=(active?spin*.61:.38)+item.seed*.07;
-  const bounce=active?(Math.abs(Math.sin(t*.011))*24*(1-e)):0;
-  const scale=active?(1+.14*Math.sin(Math.min(1,e)*Math.PI)):1;
-  ctx.save();ctx.translate(0,-bounce);
-  ctx.beginPath();ctx.ellipse(75,132,42*(1-e*.25),11*(1-e*.25),0,0,Math.PI*2);ctx.fillStyle='rgba(0,0,0,.30)';ctx.fill();
-  const p=m.v.map(v=>{const r=rot(v,ax,ay,az),d=4.8+r[2];return [75+r[0]*108/d*scale,70+r[1]*108/d*scale,r[2]];});
-  const fs=m.f.map(f=>({f,z:f.reduce((a,i)=>a+p[i][2],0)/f.length})).sort((a,b)=>a.z-b.z);
-  for(const o of fs){const f=o.f;ctx.beginPath();ctx.moveTo(p[f[0]][0],p[f[0]][1]);for(let j=1;j<f.length;j++)ctx.lineTo(p[f[j]][0],p[f[j]][1]);ctx.closePath();const shade=Math.max(28,Math.min(72,46+o.z*13));ctx.fillStyle=`hsl(222 36% ${shade}%)`;ctx.fill();ctx.lineWidth=2.1;ctx.strokeStyle='rgba(255,255,255,.84)';ctx.stroke();}
-  ctx.restore();
-  if(active&&t<dur){item.value.textContent=1+Math.floor(Math.random()*item.sides);}else{item.value.textContent=item.final>0?item.final:'-';}
-}
 for(let i=0;i<sides.length;i++){
-  const wrap=document.createElement('div');wrap.className='dieWrap'+(locked[i]?' locked':'');
-  const canvas=document.createElement('canvas');canvas.className='dieCanvas';canvas.width=150;canvas.height=150;
-  const value=document.createElement('div');value.className='dieValue';value.textContent=finals[i]>0?finals[i]:'-';
+  const wrap=document.createElement('div');
+  wrap.className='dieWrap'+(locked[i]?' locked':'')+(rolling[i]?' rolling':'');
+  const die=document.createElement('div');die.className='die s'+sides[i];
+  const value=document.createElement('div');value.className='dieValue';
+  value.textContent=rolling[i]?'?':(finals[i]>0?finals[i]:'-');
   const badge=document.createElement('div');badge.className='lockBadge';badge.textContent='LOCK';
   const label=document.createElement('div');label.className='dieLabel';label.textContent='D'+sides[i];
-  wrap.appendChild(canvas);wrap.appendChild(value);wrap.appendChild(badge);wrap.appendChild(label);root.appendChild(wrap);
-  items.push({canvas,value,sides:sides[i],final:finals[i],rolling:rolling[i],mesh:meshFor(sides[i]),seed:(i+1)*.731});
+  die.appendChild(value);wrap.appendChild(die);wrap.appendChild(badge);wrap.appendChild(label);root.appendChild(wrap);
+  items.push({wrap,value,sides:sides[i],final:finals[i],rolling:rolling[i]});
 }
-let start=performance.now();
-function frame(now){const t=now-start;for(const item of items)drawDie(item,t);if(t<2050&&rolling.some(Boolean))requestAnimationFrame(frame);else{for(const item of items){item.rolling=false;drawDie(item,99999);}document.getElementById('total').classList.add('show');}}
-requestAnimationFrame(frame);
-if(!rolling.some(Boolean))document.getElementById('total').classList.add('show');
+const hasRolling=rolling.some(Boolean);
+if(hasRolling){
+  const started=performance.now();
+  const timer=setInterval(()=>{
+    const elapsed=performance.now()-started;
+    for(const item of items){
+      if(item.rolling && elapsed < 3000)
+        item.value.textContent=1+Math.floor(Math.random()*item.sides);
+    }
+    if(elapsed>=3000){
+      clearInterval(timer);
+      for(const item of items){
+        if(item.rolling){item.value.textContent=item.final>0?item.final:'-';item.wrap.classList.remove('rolling');}
+      }
+      document.getElementById('total').classList.add('show');
+    }
+  },70);
+}else{
+  document.getElementById('total').classList.add('show');
+}
 </script></body></html>)HTML")
     .arg(jsonIntArray(sides))
     .arg(jsonIntArray(results))
@@ -396,11 +394,21 @@ void D20DiceDock::roll()
   }
 
   const qint64 nonce = QDateTime::currentMSecsSinceEpoch();
+  activeRollNonce = nonce;
   if (ensureDiceSource(lastResults, rolling, nonce)) {
-    resultLabel->setText(detail.join("   |   "));
-    totalLabel->setText(QString("TOTAL: %1").arg(total));
+    resultLabel->setText("Rolling... results reveal in 3 seconds");
+    totalLabel->setText("TOTAL: ...");
     rollButton->setText("Reroll Unlocked");
-    rebuildDiceList();
+    rollButton->setEnabled(false);
+
+    const QString finalDetail = detail.join("   |   ");
+    QTimer::singleShot(3000, this, [this, nonce, finalDetail, total]() {
+      if (activeRollNonce != nonce) return;
+      resultLabel->setText(finalDetail);
+      totalLabel->setText(QString("TOTAL: %1").arg(total));
+      rollButton->setEnabled(true);
+      rebuildDiceList();
+    });
   } else {
     resultLabel->setText("Could not create or refresh the Browser Source.");
   }
