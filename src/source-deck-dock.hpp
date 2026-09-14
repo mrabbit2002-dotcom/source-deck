@@ -1,7 +1,7 @@
 #pragma once
 
 #include <obs.h>
-#include <QGridLayout>
+#include <QPoint>
 #include <QPushButton>
 #include <QString>
 #include <QTimer>
@@ -20,29 +20,37 @@ public:
   void rebuild();
   void syncStates();
 
+protected:
+  bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
   struct Entry {
     QPushButton *button{};
     QString name;
+    QPoint pos{16, 16};
   };
 
   Mode mode;
-  QGridLayout *grid{};
+  QWidget *canvas{};
+  QPushButton *editButton{};
+  QPushButton *addButton{};
   QTimer timer;
   QVector<Entry> entries;
   bool editMode{false};
-  QPushButton *editButton{};
-  QPushButton *addButton{};
 
-  void clearDeck();
-  void buildControls();
+  QPushButton *draggingButton{};
+  QPoint dragOffset;
+
+  void buildUi();
+  void rebuildButtons();
   void addDeckButton(const QString &name, int index);
   void chooseAndAdd();
-  void moveEntry(int from, int to);
+  void removeEntry(int index);
   void saveLayout();
   void loadLayout();
   QString settingsPath() const;
   QStringList availableItems() const;
   void activateEntry(int index);
-  void refreshGrid();
+  void updateButtonAppearance();
+  QPoint clampPosition(const QPoint &pos, const QSize &buttonSize) const;
 };
