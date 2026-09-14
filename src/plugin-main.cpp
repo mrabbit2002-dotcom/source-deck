@@ -4,27 +4,49 @@
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("source-deck", "en-US")
-MODULE_EXPORT const char *obs_module_description(void) { return "Stream Deck-style source visibility dock for OBS Studio"; }
 
-static SourceDeckDock *dock = nullptr;
-static constexpr const char *DockId = "source-deck-dock";
+MODULE_EXPORT const char *obs_module_description(void)
+{
+  return "Scene and source control decks for OBS Studio";
+}
+
+static SourceDeckDock *sceneDock = nullptr;
+static SourceDeckDock *sourceDock = nullptr;
+
+static constexpr const char *SceneDockId = "source-deck-scenes";
+static constexpr const char *SourceDockId = "source-deck-sources";
 
 bool obs_module_load(void)
 {
-  dock = new SourceDeckDock();
-  if (!obs_frontend_add_dock_by_id(DockId, "Source Deck", dock)) {
-    delete dock;
-    dock = nullptr;
+  sceneDock = new SourceDeckDock(SourceDeckDock::Mode::Scenes);
+  if (!obs_frontend_add_dock_by_id(SceneDockId, "Scene Deck", sceneDock)) {
+    delete sceneDock;
+    sceneDock = nullptr;
     return false;
   }
-  blog(LOG_INFO, "[Source Deck] loaded");
+
+  sourceDock = new SourceDeckDock(SourceDeckDock::Mode::Sources);
+  if (!obs_frontend_add_dock_by_id(SourceDockId, "Source Deck", sourceDock)) {
+    obs_frontend_remove_dock(SceneDockId);
+    sceneDock = nullptr;
+    delete sourceDock;
+    sourceDock = nullptr;
+    return false;
+  }
+
+  blog(LOG_INFO, "[Source Deck] Scene Deck and Source Deck loaded");
   return true;
 }
 
 void obs_module_unload(void)
 {
-  if (dock) {
-    obs_frontend_remove_dock(DockId);
-    dock = nullptr;
+  if (sourceDock) {
+    obs_frontend_remove_dock(SourceDockId);
+    sourceDock = nullptr;
+  }
+
+  if (sceneDock) {
+    obs_frontend_remove_dock(SceneDockId);
+    sceneDock = nullptr;
   }
 }
