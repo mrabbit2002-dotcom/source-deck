@@ -37,6 +37,7 @@ private:
   QTimer timer;
   QVector<Entry> entries;
   bool editMode{false};
+  QString sourceSceneName;
 
   QPushButton *draggingButton{};
   QPoint dragOffset;
@@ -48,6 +49,7 @@ private:
   void removeEntry(int index);
   void saveLayout();
   void loadLayout();
+  void switchSourceScene(const QString &sceneName);
   QString settingsPath() const;
   QStringList availableItems() const;
   void activateEntry(int index);
