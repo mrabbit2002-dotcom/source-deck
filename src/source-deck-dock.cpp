@@ -4,14 +4,17 @@
 #include <obs-module.h>
 
 #include <QDir>
+#include <QEvent>
 #include <QFile>
+#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QMenu>
+#include <QMouseEvent>
 #include <QSignalBlocker>
 #include <QStandardPaths>
+#include <QVBoxLayout>
 
 static QString currentSceneName()
 {
@@ -27,16 +30,51 @@ static QString currentSceneName()
 SourceDeckDock::SourceDeckDock(Mode mode, QWidget *parent)
   : QWidget(parent), mode(mode)
 {
-  grid = new QGridLayout(this);
-  grid->setContentsMargins(8, 8, 8, 8);
-  grid->setSpacing(6);
-  setLayout(grid);
-
+  buildUi();
   loadLayout();
-  refreshGrid();
+  rebuildButtons();
 
   connect(&timer, &QTimer::timeout, this, [this]() { syncStates(); });
   timer.start(250);
+}
+
+void SourceDeckDock::buildUi()
+{
+  auto *root = new QVBoxLayout(this);
+  root->setContentsMargins(8, 8, 8, 8);
+  root->setSpacing(6);
+
+  auto *toolbar = new QHBoxLayout();
+  toolbar->setSpacing(6);
+
+  editButton = new QPushButton("Edit", this);
+  editButton->setMinimumHeight(36);
+  toolbar->addWidget(editButton);
+
+  addButton = new QPushButton(mode == Mode::Scenes ? "+ Scene" : "+ Source", this);
+  addButton->setMinimumHeight(36);
+  addButton->setVisible(false);
+  toolbar->addWidget(addButton);
+  toolbar->addStretch(1);
+
+  root->addLayout(toolbar);
+
+  canvas = new QWidget(this);
+  canvas->setMinimumSize(360, 320);
+  canvas->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  canvas->setStyleSheet("QWidget{background:rgba(127,127,127,0.06);border:1px solid rgba(127,127,127,0.20);}");
+  root->addWidget(canvas, 1);
+
+  connect(editButton, &QPushButton::clicked, this, [this]() {
+    editMode = !editMode;
+    editButton->setText(editMode ? "Done" : "Edit");
+    addButton->setVisible(editMode);
+    updateButtonAppearance();
+    if (!editMode)
+      saveLayout();
+  });
+
+  connect(addButton, &QPushButton::clicked, this, [this]() { chooseAndAdd(); });
 }
 
 QString SourceDeckDock::settingsPath() const
@@ -45,40 +83,6 @@ QString SourceDeckDock::settingsPath() const
   QDir().mkpath(dir);
   const QString fileName = mode == Mode::Scenes ? "scene-deck-layout.json" : "source-deck-layout.json";
   return dir + "/" + fileName;
-}
-
-void SourceDeckDock::clearDeck()
-{
-  while (QLayoutItem *child = grid->takeAt(0)) {
-    if (child->widget())
-      child->widget()->deleteLater();
-    delete child;
-  }
-
-  editButton = nullptr;
-  addButton = nullptr;
-  for (auto &entry : entries)
-    entry.button = nullptr;
-}
-
-void SourceDeckDock::buildControls()
-{
-  editButton = new QPushButton(editMode ? "Done" : "Edit", this);
-  editButton->setMinimumHeight(38);
-  connect(editButton, &QPushButton::clicked, this, [this]() {
-    editMode = !editMode;
-    if (!editMode)
-      saveLayout();
-    refreshGrid();
-  });
-  grid->addWidget(editButton, 0, 0);
-
-  if (editMode) {
-    addButton = new QPushButton(mode == Mode::Scenes ? "+ Scene" : "+ Source", this);
-    addButton->setMinimumHeight(38);
-    connect(addButton, &QPushButton::clicked, this, [this]() { chooseAndAdd(); });
-    grid->addWidget(addButton, 0, 1);
-  }
 }
 
 QStringList SourceDeckDock::availableItems() const
@@ -131,57 +135,114 @@ void SourceDeckDock::chooseAndAdd()
   if (!ok || selected.isEmpty())
     return;
 
-  entries.push_back({nullptr, selected});
+  const int n = entries.size();
+  const QPoint start(18 + (n % 3) * 132, 18 + (n / 3) * 80);
+  entries.push_back({nullptr, selected, start});
   saveLayout();
-  refreshGrid();
+  rebuildButtons();
+}
+
+void SourceDeckDock::rebuildButtons()
+{
+  for (auto &entry : entries) {
+    if (entry.button) {
+      entry.button->removeEventFilter(this);
+      entry.button->deleteLater();
+      entry.button = nullptr;
+    }
+  }
+
+  for (int i = 0; i < entries.size(); ++i)
+    addDeckButton(entries[i].name, i);
+
+  syncStates();
 }
 
 void SourceDeckDock::addDeckButton(const QString &name, int index)
 {
-  auto *button = new QPushButton(name, this);
-  button->setMinimumSize(105, 64);
+  auto *button = new QPushButton(name, canvas);
+  button->setFixedSize(120, 68);
   button->setCheckable(mode == Mode::Sources);
-
-  if (mode == Mode::Scenes) {
-    button->setStyleSheet(
-      "QPushButton{font-weight:600;padding:6px;border:2px solid #5b7cfa;}"
-    );
-  } else {
-    button->setStyleSheet(
-      "QPushButton{font-weight:600;padding:6px;}"
-      "QPushButton:checked{background:#3a9d5d;color:white;}"
-    );
-  }
+  button->setProperty("deckIndex", index);
+  button->installEventFilter(this);
+  button->move(clampPosition(entries[index].pos, button->size()));
+  button->show();
 
   connect(button, &QPushButton::clicked, this, [this, index]() {
     if (!editMode)
       activateEntry(index);
   });
 
-  if (editMode) {
-    button->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(button, &QPushButton::customContextMenuRequested, this,
-            [this, index, button](const QPoint &pos) {
-      QMenu menu;
-      QAction *left = menu.addAction("Move Left");
-      QAction *right = menu.addAction("Move Right");
-      menu.addSeparator();
-      QAction *remove = menu.addAction("Remove");
-      QAction *picked = menu.exec(button->mapToGlobal(pos));
+  entries[index].button = button;
+  updateButtonAppearance();
+}
 
-      if (picked == left && index > 0) {
-        moveEntry(index, index - 1);
-      } else if (picked == right && index + 1 < entries.size()) {
-        moveEntry(index, index + 1);
-      } else if (picked == remove) {
-        entries.removeAt(index);
-        saveLayout();
-        refreshGrid();
-      }
-    });
+bool SourceDeckDock::eventFilter(QObject *watched, QEvent *event)
+{
+  auto *button = qobject_cast<QPushButton *>(watched);
+  if (!button || !editMode)
+    return QWidget::eventFilter(watched, event);
+
+  const int index = button->property("deckIndex").toInt();
+  if (index < 0 || index >= entries.size())
+    return QWidget::eventFilter(watched, event);
+
+  if (event->type() == QEvent::MouseButtonPress) {
+    auto *mouse = static_cast<QMouseEvent *>(event);
+    if (mouse->button() == Qt::LeftButton) {
+      draggingButton = button;
+      dragOffset = mouse->position().toPoint();
+      button->raise();
+      return true;
+    }
+    if (mouse->button() == Qt::RightButton) {
+      removeEntry(index);
+      return true;
+    }
   }
 
-  entries[index].button = button;
+  if (event->type() == QEvent::MouseMove && draggingButton == button) {
+    auto *mouse = static_cast<QMouseEvent *>(event);
+    if (mouse->buttons() & Qt::LeftButton) {
+      const QPoint canvasPoint = canvas->mapFromGlobal(mouse->globalPosition().toPoint());
+      const QPoint next = clampPosition(canvasPoint - dragOffset, button->size());
+      button->move(next);
+      entries[index].pos = next;
+      return true;
+    }
+  }
+
+  if (event->type() == QEvent::MouseButtonRelease && draggingButton == button) {
+    auto *mouse = static_cast<QMouseEvent *>(event);
+    if (mouse->button() == Qt::LeftButton) {
+      entries[index].pos = button->pos();
+      draggingButton = nullptr;
+      saveLayout();
+      return true;
+    }
+  }
+
+  return QWidget::eventFilter(watched, event);
+}
+
+QPoint SourceDeckDock::clampPosition(const QPoint &pos, const QSize &buttonSize) const
+{
+  if (!canvas)
+    return pos;
+
+  const int maxX = qMax(0, canvas->width() - buttonSize.width());
+  const int maxY = qMax(0, canvas->height() - buttonSize.height());
+  return QPoint(qBound(0, pos.x(), maxX), qBound(0, pos.y(), maxY));
+}
+
+void SourceDeckDock::removeEntry(int index)
+{
+  if (index < 0 || index >= entries.size())
+    return;
+
+  entries.removeAt(index);
+  saveLayout();
+  rebuildButtons();
 }
 
 void SourceDeckDock::activateEntry(int index)
@@ -214,50 +275,40 @@ void SourceDeckDock::activateEntry(int index)
   obs_source_release(sceneSource);
 }
 
-void SourceDeckDock::moveEntry(int from, int to)
+void SourceDeckDock::updateButtonAppearance()
 {
-  if (from < 0 || to < 0 || from >= entries.size() || to >= entries.size())
-    return;
+  for (auto &entry : entries) {
+    if (!entry.button)
+      continue;
 
-  entries.move(from, to);
-  saveLayout();
-  refreshGrid();
-}
-
-void SourceDeckDock::refreshGrid()
-{
-  clearDeck();
-  buildControls();
-
-  constexpr int columns = 3;
-  for (int i = 0; i < entries.size(); ++i) {
-    addDeckButton(entries[i].name, i);
-    grid->addWidget(entries[i].button, 1 + (i / columns), i % columns);
+    if (mode == Mode::Scenes) {
+      const bool active = entry.name == currentSceneName();
+      entry.button->setStyleSheet(
+        editMode
+          ? "QPushButton{font-weight:700;padding:6px;border:2px dashed #d38b2c;background:rgba(211,139,44,0.12);}"
+          : active
+              ? "QPushButton{font-weight:700;padding:6px;background:#5b7cfa;color:white;border:2px solid #5b7cfa;}"
+              : "QPushButton{font-weight:600;padding:6px;border:2px solid #5b7cfa;}"
+      );
+    } else {
+      entry.button->setStyleSheet(
+        editMode
+          ? "QPushButton{font-weight:700;padding:6px;border:2px dashed #d38b2c;background:rgba(211,139,44,0.12);}"
+          : "QPushButton{font-weight:600;padding:6px;} QPushButton:checked{background:#3a9d5d;color:white;}"
+      );
+    }
   }
-
-  syncStates();
 }
 
 void SourceDeckDock::rebuild()
 {
-  refreshGrid();
+  rebuildButtons();
 }
 
 void SourceDeckDock::syncStates()
 {
   if (mode == Mode::Scenes) {
-    const QString activeScene = currentSceneName();
-    for (auto &entry : entries) {
-      if (!entry.button)
-        continue;
-
-      const bool active = entry.name == activeScene;
-      entry.button->setStyleSheet(
-        active
-          ? "QPushButton{font-weight:700;padding:6px;background:#5b7cfa;color:white;border:2px solid #5b7cfa;}"
-          : "QPushButton{font-weight:600;padding:6px;border:2px solid #5b7cfa;}"
-      );
-    }
+    updateButtonAppearance();
     return;
   }
 
@@ -277,6 +328,8 @@ void SourceDeckDock::syncStates()
 
   if (sceneSource)
     obs_source_release(sceneSource);
+
+  updateButtonAppearance();
 }
 
 void SourceDeckDock::saveLayout()
@@ -285,6 +338,8 @@ void SourceDeckDock::saveLayout()
   for (const auto &entry : entries) {
     QJsonObject obj;
     obj["name"] = entry.name;
+    obj["x"] = entry.pos.x();
+    obj["y"] = entry.pos.y();
     array.append(obj);
   }
 
@@ -303,9 +358,21 @@ void SourceDeckDock::loadLayout()
   if (!doc.isArray())
     return;
 
+  int fallback = 0;
   for (const auto &value : doc.array()) {
-    const QString name = value.toObject()["name"].toString();
-    if (!name.isEmpty())
-      entries.push_back({nullptr, name});
+    const QJsonObject obj = value.toObject();
+    const QString name = obj["name"].toString();
+    if (name.isEmpty())
+      continue;
+
+    QPoint pos;
+    if (obj.contains("x") && obj.contains("y")) {
+      pos = QPoint(obj["x"].toInt(), obj["y"].toInt());
+    } else {
+      pos = QPoint(18 + (fallback % 3) * 132, 18 + (fallback / 3) * 80);
+    }
+
+    entries.push_back({nullptr, name, pos});
+    ++fallback;
   }
 }
