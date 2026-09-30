@@ -13,6 +13,7 @@
 #include <QJsonObject>
 #include <QMouseEvent>
 #include <QSignalBlocker>
+#include <QScrollArea>
 #include <QStandardPaths>
 #include <QVBoxLayout>
 
@@ -53,10 +54,13 @@ void SourceDeckDock::buildUi()
   toolbar->addStretch(1);
   root->addLayout(toolbar);
   canvas = new QWidget(this);
-  canvas->setMinimumSize(360, 320);
+  canvas->setFixedSize(420, 320);
   canvas->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   canvas->setStyleSheet("QWidget{background:rgba(127,127,127,0.06);border:1px solid rgba(127,127,127,0.20);}");
-  root->addWidget(canvas, 1);
+  auto *scroll = new QScrollArea(this);
+  scroll->setWidgetResizable(false);
+  scroll->setWidget(canvas);
+  root->addWidget(scroll, 1);
   connect(editButton, &QPushButton::clicked, this, [this]() {
     editMode = !editMode;
     editButton->setText(editMode ? "Done" : "Edit");
@@ -113,8 +117,15 @@ void SourceDeckDock::chooseAndAdd()
     mode == Mode::Scenes ? "Scene:" : "Source:",
     choices, 0, false, &ok);
   if (!ok || selected.isEmpty()) return;
-  const int n = entries.size();
-  entries.push_back({nullptr, selected, QPoint(18 + (n % 3) * 132, 18 + (n / 3) * 80)});
+  int cell = 0;
+  for (;;) {
+    bool occupied = false;
+    for (const auto &entry : entries)
+      if (entry.pos == QPoint(cell % 3, cell / 3)) { occupied = true; break; }
+    if (!occupied) break;
+    ++cell;
+  }
+  entries.push_back({nullptr, selected, QPoint(cell % 3, cell / 3)});
   saveLayout();
   rebuildButtons();
 }
@@ -129,6 +140,9 @@ void SourceDeckDock::rebuildButtons()
   }
   draggingButton = nullptr;
   for (auto &entry : entries) entry.button = nullptr;
+  int maxRow = 3;
+  for (const auto &entry : entries) maxRow = qMax(maxRow, entry.pos.y() + 1);
+  canvas->setFixedSize(420, qMax(320, 18 + maxRow * 80));
   for (int i = 0; i < entries.size(); ++i) addDeckButton(entries[i].name, i);
   syncStates();
 }
@@ -140,7 +154,7 @@ void SourceDeckDock::addDeckButton(const QString &name, int index)
   button->setCheckable(mode == Mode::Sources);
   button->setProperty("deckIndex", index);
   button->installEventFilter(this);
-  button->move(clampPosition(entries[index].pos, button->size()));
+  button->move(QPoint(18 + entries[index].pos.x() * 132, 18 + entries[index].pos.y() * 80));
   button->show();
   connect(button, &QPushButton::clicked, this, [this, button]() {
     if (!editMode) activateEntry(button->property("deckIndex").toInt());
@@ -171,18 +185,22 @@ bool SourceDeckDock::eventFilter(QObject *watched, QEvent *event)
   if (event->type() == QEvent::MouseMove && draggingButton == button) {
     auto *mouse = static_cast<QMouseEvent *>(event);
     if (mouse->buttons() & Qt::LeftButton) {
-      const QPoint next = clampPosition(canvas->mapFromGlobal(mouse->globalPosition().toPoint()) - dragOffset, button->size());
-      button->move(next);
-      entries[index].pos = next;
+      const QPoint next = canvas->mapFromGlobal(mouse->globalPosition().toPoint()) - dragOffset;
+      button->move(QPoint(qBound(0, next.x(), 282), qBound(0, next.y(), qMax(0, canvas->height() - 68))));
       return true;
     }
   }
   if (event->type() == QEvent::MouseButtonRelease && draggingButton == button) {
     auto *mouse = static_cast<QMouseEvent *>(event);
     if (mouse->button() == Qt::LeftButton) {
-      entries[index].pos = button->pos();
+      const QPoint previous = entries[index].pos;
+      const QPoint target(qBound(0, (button->x() + 48) / 132, 2), qMax(0, (button->y() + 32) / 80));
+      for (int j = 0; j < entries.size(); ++j)
+        if (j != index && entries[j].pos == target) { entries[j].pos = previous; break; }
+      entries[index].pos = target;
       draggingButton = nullptr;
       saveLayout();
+      rebuildButtons();
       return true;
     }
   }
@@ -303,8 +321,8 @@ void SourceDeckDock::saveLayout()
   for (const auto &entry : entries) {
     QJsonObject obj;
     obj["name"] = entry.name;
-    obj["x"] = entry.pos.x();
-    obj["y"] = entry.pos.y();
+    obj["column"] = entry.pos.x();
+    obj["row"] = entry.pos.y();
     array.append(obj);
   }
 
@@ -360,9 +378,18 @@ void SourceDeckDock::loadLayout()
     const QJsonObject obj = value.toObject();
     const QString name = obj["name"].toString();
     if (name.isEmpty()) continue;
-    const QPoint pos = obj.contains("x") && obj.contains("y")
-      ? QPoint(obj["x"].toInt(), obj["y"].toInt())
-      : QPoint(18 + (fallback % 3) * 132, 18 + (fallback / 3) * 80);
+    // Migrate legacy pixel coordinates to stable grid cells.
+    QPoint pos = obj.contains("column") && obj.contains("row")
+      ? QPoint(qBound(0, obj["column"].toInt(), 2), qMax(0, obj["row"].toInt()))
+      : obj.contains("x") && obj.contains("y")
+        ? QPoint(qBound(0, (obj["x"].toInt() - 18 + 66) / 132, 2), qMax(0, (obj["y"].toInt() - 18 + 40) / 80))
+        : QPoint(fallback % 3, fallback / 3);
+    bool collision;
+    do {
+      collision = false;
+      for (const auto &existing : entries)
+        if (existing.pos == pos) { collision = true; ++pos.rx(); if (pos.x() > 2) { pos.setX(0); ++pos.ry(); } break; }
+    } while (collision);
     entries.push_back({nullptr, name, pos});
     ++fallback;
   }
