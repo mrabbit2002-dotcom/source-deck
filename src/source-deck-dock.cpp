@@ -65,7 +65,7 @@ void SourceDeckDock::buildUi()
     editMode = !editMode;
     editButton->setText(editMode ? "Done" : "Edit");
     addButton->setVisible(editMode);
-    updateButtonAppearance();
+    rebuildButtons();
     if (!editMode) saveLayout();
   });
   connect(addButton, &QPushButton::clicked, this, [this]() { chooseAndAdd(); });
@@ -141,8 +141,14 @@ void SourceDeckDock::rebuildButtons()
   draggingButton = nullptr;
   for (auto &entry : entries) entry.button = nullptr;
   int maxRow = 3;
-  for (const auto &entry : entries) maxRow = qMax(maxRow, entry.pos.y() + 1);
-  canvas->setFixedSize(420, qMax(320, 18 + maxRow * 80));
+  int maxColumn = 2;
+  for (const auto &entry : entries) {
+    maxRow = qMax(maxRow, entry.pos.y() + 1);
+    maxColumn = qMax(maxColumn, entry.pos.x());
+  }
+  // One spare row and column while editing make the grid expandable.
+  canvas->setFixedSize(qMax(420, 18 + (maxColumn + 1 + (editMode ? 1 : 0)) * 132),
+                       qMax(320, 18 + (maxRow + (editMode ? 1 : 0)) * 80));
   for (int i = 0; i < entries.size(); ++i) addDeckButton(entries[i].name, i);
   syncStates();
 }
@@ -186,7 +192,14 @@ bool SourceDeckDock::eventFilter(QObject *watched, QEvent *event)
     auto *mouse = static_cast<QMouseEvent *>(event);
     if (mouse->buttons() & Qt::LeftButton) {
       const QPoint next = canvas->mapFromGlobal(mouse->globalPosition().toPoint()) - dragOffset;
-      button->move(QPoint(qBound(0, next.x(), 282), qBound(0, next.y(), qMax(0, canvas->height() - 68))));
+      // Grow the canvas when a dragged button reaches its right/bottom edge.
+      // Scrollbars then expose the newly created cells without moving existing ones.
+      const int x = qMax(0, next.x());
+      const int y = qMax(0, next.y());
+      if (x + 120 >= canvas->width() - 12 || y + 68 >= canvas->height() - 12)
+        canvas->setFixedSize(qMax(canvas->width(), x + 120 + 132),
+                             qMax(canvas->height(), y + 68 + 80));
+      button->move(x, y);
       return true;
     }
   }
@@ -194,7 +207,7 @@ bool SourceDeckDock::eventFilter(QObject *watched, QEvent *event)
     auto *mouse = static_cast<QMouseEvent *>(event);
     if (mouse->button() == Qt::LeftButton) {
       const QPoint previous = entries[index].pos;
-      const QPoint target(qBound(0, (button->x() + 48) / 132, 2), qMax(0, (button->y() + 32) / 80));
+      const QPoint target(qMax(0, (button->x() + 48) / 132), qMax(0, (button->y() + 32) / 80));
       for (int j = 0; j < entries.size(); ++j)
         if (j != index && entries[j].pos == target) { entries[j].pos = previous; break; }
       entries[index].pos = target;
@@ -380,15 +393,15 @@ void SourceDeckDock::loadLayout()
     if (name.isEmpty()) continue;
     // Migrate legacy pixel coordinates to stable grid cells.
     QPoint pos = obj.contains("column") && obj.contains("row")
-      ? QPoint(qBound(0, obj["column"].toInt(), 2), qMax(0, obj["row"].toInt()))
+      ? QPoint(qMax(0, obj["column"].toInt()), qMax(0, obj["row"].toInt()))
       : obj.contains("x") && obj.contains("y")
-        ? QPoint(qBound(0, (obj["x"].toInt() - 18 + 66) / 132, 2), qMax(0, (obj["y"].toInt() - 18 + 40) / 80))
+        ? QPoint(qMax(0, (obj["x"].toInt() - 18 + 66) / 132), qMax(0, (obj["y"].toInt() - 18 + 40) / 80))
         : QPoint(fallback % 3, fallback / 3);
     bool collision;
     do {
       collision = false;
       for (const auto &existing : entries)
-        if (existing.pos == pos) { collision = true; ++pos.rx(); if (pos.x() > 2) { pos.setX(0); ++pos.ry(); } break; }
+        if (existing.pos == pos) { collision = true; pos.rx()++; break; }
     } while (collision);
     entries.push_back({nullptr, name, pos});
     ++fallback;
